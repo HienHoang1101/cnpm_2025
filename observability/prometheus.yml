@@ -1,0 +1,23 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  - job_name: 'backend-services'
+    metrics_path: /metrics
+    static_configs:
+      - targets:
+          - 'host.docker.internal:5001' # auth
+          - 'host.docker.internal:5002' # order
+          - 'host.docker.internal:5003' # restaurant
+          - 'host.docker.internal:5004' # payment
+          - 'host.docker.internal:5007' # notification
+          - 'host.docker.internal:5000' # admin-service
+        labels:
+          group: 'backend'
+rule_files:
+  - "/etc/prometheus/alerts/alerts.yml"

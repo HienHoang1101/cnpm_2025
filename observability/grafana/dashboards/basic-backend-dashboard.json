@@ -1,0 +1,22 @@
+{
+  "annotations": {
+    "list": []
+  },
+  "panels": [
+    {
+      "type": "graph",
+      "title": "HTTP Request Duration (seconds)",
+      "gridPos": { "x": 0, "y": 0, "w": 24, "h": 9 },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket[5m])) by (le, job))",
+          "legendFormat": "{{job}}",
+          "refId": "A"
+        }
+      ]
+    }
+  ],
+  "schemaVersion": 30,
+  "title": "Backend Services Overview",
+  "version": 1
+}
