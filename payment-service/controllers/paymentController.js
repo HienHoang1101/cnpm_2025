@@ -2,12 +2,9 @@ import Stripe from "stripe";
 import Payment from "../models/Payment.js";
 import axios from "axios";
 
-const stripe = new Stripe(
-  "REDACTED_STRIPE_KEY",
-  {
-    apiVersion: "2023-08-16",
-  }
-);
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || process.env.STRIPE_KEY || "", {
+  apiVersion: "2023-08-16",
+});
 
 // Initiate Payment
 const initiatePayment = async (req, res) => {
@@ -90,11 +87,7 @@ const handleWebhook = async (req, res) => {
   let event;
 
   try {
-    event = stripe.webhooks.constructEvent(
-      req.body,
-      sig,
-      "[REDACTED_STRIPE_WEBHOOK]"
-    );
+    event = stripe.webhooks.constructEvent(req.body, sig, process.env.STRIPE_WEBHOOK_SECRET || "");
   } catch (err) {
     console.error("Webhook verification failed:", err);
     return res.status(400).send(`Webhook Error: ${err.message}`);
