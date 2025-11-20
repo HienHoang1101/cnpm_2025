@@ -75,42 +75,49 @@ jobs:
         with:
           name: coverage-admin-service
           path: coverage-artifacts/admin-service
+          if-no-files-found: ignore
 
       - name: Download coverage-auth
         uses: actions/download-artifact@v4
         with:
           name: coverage-auth
           path: coverage-artifacts/auth
+          if-no-files-found: ignore
 
       - name: Download coverage-order
         uses: actions/download-artifact@v4
         with:
           name: coverage-order
           path: coverage-artifacts/order
+          if-no-files-found: ignore
 
       - name: Download coverage-payment-service
         uses: actions/download-artifact@v4
         with:
           name: coverage-payment-service
           path: coverage-artifacts/payment-service
+          if-no-files-found: ignore
 
       - name: Download coverage-notification-service
         uses: actions/download-artifact@v4
         with:
           name: coverage-notification-service
           path: coverage-artifacts/notification-service
+          if-no-files-found: ignore
 
       - name: Download coverage-restaurant
         uses: actions/download-artifact@v4
         with:
           name: coverage-restaurant
           path: coverage-artifacts/restaurant
+          if-no-files-found: ignore
 
       - name: Download coverage-food-delivery-server
         uses: actions/download-artifact@v4
         with:
           name: coverage-food-delivery-server
           path: coverage-artifacts/food-delivery-server
+          if-no-files-found: ignore
 
       - name: Summarize coverage
         run: |
