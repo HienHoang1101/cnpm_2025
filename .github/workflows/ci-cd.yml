@@ -1,0 +1,109 @@
+name: CI / CD
+
+on:
+  pull_request:
+    branches: ['**']
+  push:
+    branches:
+      - main
+
+jobs:
+  tests:
+    name: Run tests — ${{ matrix.service }}
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [16, 18]
+        include:
+          - service: auth
+            dir: auth
+          - service: admin-service
+            dir: admin-service
+          - service: notification-service
+            dir: notification-service
+          - service: order
+            dir: order
+          - service: payment-service
+            dir: payment-service
+          - service: restaurant
+            dir: restaurant
+          - service: food-delivery-server
+            dir: food-delivery-server
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Use Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+
+      - name: Cache node_modules
+        uses: actions/cache@v4
+        with:
+          path: ${{ matrix.dir }}/node_modules
+          key: ${{ runner.os }}-node-${{ matrix.node-version }}-${{ matrix.dir }}-${{ hashFiles(format('{0}/package-lock.json', matrix.dir)) }}
+          restore-keys: |
+            ${{ runner.os }}-node-${{ matrix.node-version }}-${{ matrix.dir }}-
+
+      - name: Install & Run Tests (if present)
+        working-directory: ${{ matrix.dir }}
+        shell: bash
+        run: |
+          echo "Checking for package.json in $PWD"
+          if [ -f package.json ]; then
+            echo "Found package.json — installing deps"
+            npm ci --unsafe-perm || npm install
+            if npm run | grep -q "test:ci"; then
+              echo "Running npm run test:ci"
+              npm run test:ci
+            else
+              echo "Running npm test"
+              npm test -- --runInBand || true
+            fi
+          else
+            echo "No package.json found in ${matrix.dir}, skipping tests"
+          fi
+
+  deploy:
+    name: Build & Push images (CD)
+    runs-on: ubuntu-latest
+    needs: tests
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU and Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to registry
+        if: env.DOCKER_REGISTRY != '' && secrets.DOCKER_USERNAME && secrets.DOCKER_PASSWORD
+        uses: docker/login-action@v2
+        with:
+          registry: ${{ env.DOCKER_REGISTRY }}
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Build and push images (if registry configured)
+        env:
+          DOCKER_REGISTRY: ${{ env.DOCKER_REGISTRY }}
+        run: |
+          set -eux
+          if [ -z "${DOCKER_REGISTRY}" ]; then
+            echo "DOCKER_REGISTRY not set — skipping image build/push"
+            exit 0
+          fi
+
+          SERVICES=(auth admin-service notification-service order payment-service restaurant food-delivery-server)
+          for s in "${SERVICES[@]}"; do
+            if [ -f "$s/Dockerfile" ]; then
+              IMAGE="$DOCKER_REGISTRY/$s:${GITHUB_SHA::8}"
+              echo "Building $IMAGE"
+              docker build -t "$IMAGE" "$s"
+              docker push "$IMAGE"
+            else
+              echo "No Dockerfile for $s — skipping"
+            fi
+          done

@@ -1,0 +1,53 @@
+name: CI — Auth Service
+
+on:
+  push:
+    paths:
+      - 'auth/**'
+      - '.github/workflows/**'
+  pull_request:
+    paths:
+      - 'auth/**'
+      - '.github/workflows/**'
+
+jobs:
+  auth-tests:
+    name: Auth tests
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [16, 18]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+
+      - name: Cache auth node_modules
+        uses: actions/cache@v4
+        with:
+          path: auth/node_modules
+          key: ${{ runner.os }}-auth-node-${{ matrix.node-version }}-${{ hashFiles('auth/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-auth-node-${{ matrix.node-version }}-
+
+      - name: Install dependencies (auth)
+        working-directory: auth
+        run: npm ci
+
+      - name: Run auth tests and coverage
+        working-directory: auth
+        env:
+          CI: true
+        run: npm run test:ci
+
+      - name: Upload coverage artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: auth-coverage
+          path: auth/coverage

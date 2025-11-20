@@ -1,0 +1,139 @@
+name: Monitoring /metrics smoke check
+
+on:
+  pull_request:
+    paths:
+      - 'monitoring/**'
+      - 'docker-compose.monitoring.yml'
+      - '.github/workflows/**'
+  workflow_dispatch: {}
+
+jobs:
+  smoke-check:
+    name: Monitoring /metrics smoke check (single-job)
+    runs-on: ubuntu-20.04
+    timeout-minutes: 50
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Collect runner diagnostics
+        run: |
+          set -eux
+          mkdir -p monitoring/artifacts
+          echo "== uname -a ==" > monitoring/artifacts/runner-diag.txt
+          uname -a >> monitoring/artifacts/runner-diag.txt 2>&1 || true
+          echo "\n== docker --version ==" >> monitoring/artifacts/runner-diag.txt
+          docker --version >> monitoring/artifacts/runner-diag.txt 2>&1 || true
+          echo "\n== docker info ==" >> monitoring/artifacts/runner-diag.txt
+          docker info >> monitoring/artifacts/runner-diag.txt 2>&1 || true
+
+      - name: Upload runner diagnostics
+        uses: actions/upload-artifact@v4
+        with:
+          name: monitoring-diag
+          path: monitoring/artifacts/runner-diag.txt
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Start monitoring stack (build + up) with retries
+        env:
+          COMPOSE_DOCKER_CLI_BUILD: 1
+          DOCKER_BUILDKIT: 1
+        run: |
+          set -eux
+          if [ -z "$(docker ps -q -f name=monitoring-mongo)" ]; then
+            docker run -d --name monitoring-mongo -p 27017:27017 mongo:5.0 || true
+          fi
+
+          docker compose -f docker-compose.yml -f docker-compose.monitoring.yml build --parallel || true
+
+          MAX_ATTEMPTS=4
+          attempt=1
+          while [ $attempt -le $MAX_ATTEMPTS ]; do
+            echo "compose up attempt $attempt"
+            docker compose -f docker-compose.yml -f docker-compose.monitoring.yml up -d --pull always monitoring-mongo auth-service order-service payment-service delivery-service admin-service || true
+            sleep $((10 * attempt))
+            docker ps --format "table {{.Names}}\t{{.Status}}" > monitoring/artifacts/docker-ps.txt 2>&1 || true
+            if [ -n "$(docker ps -q -f name=auth-service)" ]; then break; fi
+            attempt=$((attempt+1))
+          done
+
+      - name: Collect early logs
+        run: |
+          set -eux
+          mkdir -p monitoring/artifacts
+          docker compose -f docker-compose.yml -f docker-compose.monitoring.yml ps > monitoring/artifacts/compose-ps.txt 2>&1 || true
+          docker compose -f docker-compose.yml -f docker-compose.monitoring.yml logs --no-color --tail=200 > monitoring/artifacts/compose-logs.txt 2>&1 || true
+          docker logs --tail 500 auth-service > monitoring/artifacts/auth-service.log 2>&1 || true
+          docker logs --tail 500 order-service > monitoring/artifacts/order-service.log 2>&1 || true
+          docker logs --tail 500 payment-service > monitoring/artifacts/payment-service.log 2>&1 || true
+          docker logs --tail 500 delivery-service > monitoring/artifacts/delivery-service.log 2>&1 || true
+          docker logs --tail 500 admin-service > monitoring/artifacts/admin-service.log 2>&1 || true
+
+      - name: Collect container inspect and compose files
+        if: always()
+        run: |
+          set -eux
+          mkdir -p monitoring/artifacts/inspect
+          echo "== docker inspect for known services ==" > monitoring/artifacts/inspect/inspect-summary.txt || true
+          for svc in monitoring-mongo auth-service order-service payment-service delivery-service admin-service notification-service restaurant-service food-delivery-server; do
+            if [ -n "$(docker ps -q -f name=$svc)" ]; then
+              docker inspect $svc > monitoring/artifacts/inspect/$svc.inspect.json 2>&1 || true
+              echo "$svc: inspected" >> monitoring/artifacts/inspect/inspect-summary.txt || true
+            else
+              echo "$svc: not running" >> monitoring/artifacts/inspect/inspect-summary.txt || true
+            fi
+          done
+          echo "== docker-compose files ==" > monitoring/artifacts/compose-files.txt || true
+          sed -n '1,200p' docker-compose.yml > monitoring/artifacts/compose-files.yml || true
+          if [ -f docker-compose.monitoring.yml ]; then sed -n '1,200p' docker-compose.monitoring.yml >> monitoring/artifacts/compose-files.yml || true; fi
+
+      - name: Install monitoring deps
+        run: |
+          set -eux
+          npm ci --prefix ./monitoring || npm install --prefix ./monitoring
+
+      - name: Run smoke test (with retries)
+        run: |
+          set -eux
+          mkdir -p monitoring/artifacts
+          MAX=4; i=1; success=0
+          while [ $i -le $MAX ]; do
+            echo "smoke attempt $i"
+            node monitoring/tests/check-metrics.js > monitoring/artifacts/smoke-output.txt 2>&1 && success=1 && break || true
+            i=$((i+1))
+            sleep $((10 * i))
+          done
+          if [ $success -ne 1 ]; then echo "failed" > monitoring/artifacts/smoke-exit.txt; exit 1; fi
+
+      - name: Run Prometheus metric assertions
+        run: |
+          set -eux
+          # Give Prometheus another moment to scrape
+          sleep 5
+          node monitoring/tests/prometheus-metrics-check.js > monitoring/artifacts/prom-metrics.txt 2>&1 || true
+          if grep -q "Prometheus metrics check passed" monitoring/artifacts/prom-metrics.txt; then
+            echo "Prometheus assertions passed"
+          else
+            echo "Prometheus assertions failed - see artifact" > monitoring/artifacts/prom-exit.txt
+            exit 1
+          fi
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: monitoring-smoke
+          path: monitoring/artifacts/**
+
+      - name: Tear down
+        if: always()
+        run: |
+          set -eux || true
+          docker compose -f docker-compose.yml -f docker-compose.monitoring.yml down -v || true
+
+

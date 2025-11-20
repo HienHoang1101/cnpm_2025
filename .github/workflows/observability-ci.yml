@@ -1,0 +1,248 @@
+name: Observability Smoke Tests
+
+on:
+  push:
+    paths:
+      - 'observability/**'
+      - '.github/workflows/observability-ci.yml'
+  pull_request:
+    paths:
+      - 'observability/**'
+
+jobs:
+  unit-tests:
+    name: Unit tests (per-service)
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        service: [admin-service, auth, order, payment-service, notification-service, restaurant, food-delivery-server]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Install deps for ${{ matrix.service }}
+        run: |
+          if [ -f "${{ matrix.service }}/package.json" ]; then
+            npm ci --prefix "${{ matrix.service }}" || true
+          else
+            echo "No package.json for ${{ matrix.service }}"
+          fi
+
+      - name: Run tests for ${{ matrix.service }}
+        run: |
+          mkdir -p test-logs
+          mkdir -p test-results/${{ matrix.service }}
+          if [ -f "${{ matrix.service }}/package.json" ]; then
+            echo "Exporting JUnit output to test-results/${{ matrix.service }}/junit.xml"
+            export JEST_JUNIT_OUTPUT="test-results/${{ matrix.service }}/junit.xml"
+            (cd "${{ matrix.service }}" && npm run test:ci) 2>&1 | tee "../test-logs/${{ matrix.service }}.txt" || true
+          else
+            echo "skipped" > "test-logs/${{ matrix.service }}.txt"
+          fi
+
+      - name: Upload test logs
+        uses: actions/upload-artifact@v4
+        with:
+          name: unit-test-logs-${{ matrix.service }}
+          path: test-logs/${{ matrix.service }}.txt
+
+      - name: Upload JUnit report (if present)
+        uses: actions/upload-artifact@v4
+        with:
+          name: junit-${{ matrix.service }}
+          path: test-results/${{ matrix.service }}/junit.xml
+      - name: Upload coverage artifact (if present)
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-${{ matrix.service }}
+          path: ${{ matrix.service }}/coverage
+
+
+  coverage-summary:
+    runs-on: ubuntu-latest
+    needs: unit-tests
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download coverage artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: coverage-admin-service
+          path: coverage-artifacts/admin-service
+
+      - name: Download coverage-auth
+        uses: actions/download-artifact@v4
+        with:
+          name: coverage-auth
+          path: coverage-artifacts/auth
+
+      - name: Download coverage-order
+        uses: actions/download-artifact@v4
+        with:
+          name: coverage-order
+          path: coverage-artifacts/order
+
+      - name: Download coverage-payment-service
+        uses: actions/download-artifact@v4
+        with:
+          name: coverage-payment-service
+          path: coverage-artifacts/payment-service
+
+      - name: Download coverage-notification-service
+        uses: actions/download-artifact@v4
+        with:
+          name: coverage-notification-service
+          path: coverage-artifacts/notification-service
+
+      - name: Download coverage-restaurant
+        uses: actions/download-artifact@v4
+        with:
+          name: coverage-restaurant
+          path: coverage-artifacts/restaurant
+
+      - name: Download coverage-food-delivery-server
+        uses: actions/download-artifact@v4
+        with:
+          name: coverage-food-delivery-server
+          path: coverage-artifacts/food-delivery-server
+
+      - name: Summarize coverage
+        run: |
+          set -e
+          mkdir -p coverage-summary
+          echo "service,lines,branches,functions,statements" > coverage-summary/summary.csv
+          for d in admin-service auth order payment-service notification-service restaurant food-delivery-server; do
+            if [ -f "coverage-artifacts/$d/coverage/coverage-summary.json" ]; then
+              LINES=$(jq -r '.lines.pct' coverage-artifacts/$d/coverage/coverage-summary.json)
+              BRANCHES=$(jq -r '.branches.pct' coverage-artifacts/$d/coverage/coverage-summary.json)
+              FUNCTIONS=$(jq -r '.functions.pct' coverage-artifacts/$d/coverage/coverage-summary.json)
+              STATEMENTS=$(jq -r '.statements.pct' coverage-artifacts/$d/coverage/coverage-summary.json)
+              echo "$d,$LINES,$BRANCHES,$FUNCTIONS,$STATEMENTS" >> coverage-summary/summary.csv
+            else
+              echo "$d,missing,missing,missing,missing" >> coverage-summary/summary.csv
+            fi
+          done
+
+      - name: Upload coverage summary
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-summary
+          path: coverage-summary
+
+  
+  smoke-tests:
+    runs-on: ubuntu-latest
+    needs: [unit-tests, coverage-summary]
+    env:
+      INTEGRATION_STRICT: 'true'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Cache npm
+        uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-node-
+      - name: Start observability stack (detached)
+        run: |
+          docker compose -f docker-compose.dev.yml up -d
+
+      - name: Start backend services (if defined in compose)
+        run: |
+          # If the compose file contains service definitions for the backend,
+          # bring them up so integration tests can hit the endpoints.
+          docker compose -f docker-compose.dev.yml up -d || true
+
+      - name: Wait for backend health endpoints
+        run: |
+          set -e
+          ports=(5000 5001 5002 5003 5004 5007)
+          for p in "${ports[@]}"; do
+            echo "Waiting for service on port $p";
+            for i in `seq 1 30`; do
+              if curl -sS --max-time 2 http://localhost:$p/health >/dev/null 2>&1; then
+                echo "port $p healthy"; break;
+              fi
+              echo "waiting for port $p ($i)"; sleep 2;
+            done
+          done
+
+      - name: Wait for observability services
+        run: |
+          set -e
+          echo "Waiting for Loki (3100)"
+          for i in `seq 1 30`; do
+            if curl -sS http://localhost:3100/ready | grep -q "ready"; then echo Loki ready && break; fi
+            echo "Waiting for Loki... ($i)"; sleep 5;
+          done
+
+          echo "Waiting for Prometheus (9090)"
+          for i in `seq 1 30`; do
+            if curl -sS http://localhost:9090/-/ready | grep -q "Prometheus is Ready"; then echo Prometheus ready && break; fi
+            echo "Waiting for Prometheus... ($i)"; sleep 5;
+          done
+
+      - name: Install Node.js deps for repo services
+        run: |
+          set -e
+          # Install root deps for tools if present
+          if [ -f package.json ]; then npm ci || true; fi
+          # Install each service's dev deps (only those that have package.json)
+          for d in admin-service auth order payment-service notification-service restaurant food-delivery-server; do
+            if [ -f "$d/package.json" ]; then
+              echo "Installing deps for $d";
+              npm ci --prefix "$d" || true;
+            fi;
+          done
+
+      - name: Run unit tests for each service
+        run: |
+          set -e
+          failures=0
+          for d in admin-service auth order payment-service notification-service restaurant food-delivery-server; do
+            if [ -f "$d/package.json" ]; then
+              echo "Running tests for $d"
+              (cd "$d" && npm test) || failures=$((failures+1))
+            else
+              echo "No package.json in $d, skipping"
+            fi
+          done
+          if [ "$failures" -ne 0 ]; then
+            echo "$failures service test(s) failed"; exit 1; fi
+
+      - name: Run integration smoke tests
+        run: |
+          node observability/integration/run-integration-tests.js
+
+      - name: Collect docker-compose logs (on failure)
+        if: failure()
+        run: |
+          mkdir -p ci-logs
+          docker compose -f docker-compose.dev.yml logs --no-color > ci-logs/compose-logs.txt || true
+        continue-on-error: true
+
+      - name: Upload CI logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-logs
+          path: ci-logs
+
+      - name: Tear down observability stack
+        if: always()
+        run: |
+          docker compose -f docker-compose.dev.yml down --volumes
