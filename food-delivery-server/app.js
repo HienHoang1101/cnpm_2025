@@ -25,6 +25,34 @@ app.use(cors({
 app.use(morgan('dev'));
 app.use(express.json());
 
+// Prometheus metrics instrumentation
+let register;
+try {
+  const client = require('prom-client');
+  register = client.register;
+  if (!global.__promClientInitialized) {
+    client.collectDefaultMetrics({ register });
+    global.__promClientInitialized = true;
+  }
+  const httpRequestCounter =
+    register.getSingleMetric('http_requests_total') ||
+    new client.Counter({
+      name: 'http_requests_total',
+      help: 'Total HTTP requests',
+      labelNames: ['method', 'route', 'code'],
+    });
+
+  app.use((req, res, next) => {
+    res.on('finish', () => {
+      const route = req.route && req.route.path ? req.route.path : req.path;
+      httpRequestCounter.inc({ method: req.method, route, code: res.statusCode });
+    });
+    next();
+  });
+} catch (e) {
+  // prom-client may not be installed in all environments — ignore
+}
+
 // Database connection (skip during tests)
 if (process.env.NODE_ENV !== 'test') {
   mongoose.connect(process.env.DELIVERY_MONGO_URI)
@@ -60,6 +88,19 @@ app.use((err, req, res, next) => {
   });
 });
 
+// Prometheus metrics endpoint (optional)
+if (register) {
+  app.get('/metrics', async (req, res) => {
+    try {
+      res.setHeader('Content-Type', register.contentType);
+      const metrics = await register.metrics();
+      res.status(200).send(metrics);
+    } catch (err) {
+      res.status(500).send(err.message);
+    }
+  });
+}
+
 let httpServer;
 if (process.env.NODE_ENV !== 'test') {
   httpServer = createServer(app);
@@ -71,27 +112,6 @@ if (process.env.NODE_ENV !== 'test') {
   httpServer.listen(PORT, () => {
     console.log(`Delivery Service running on port ${PORT}`);
   });
-}
-
-// Prometheus metrics endpoint (optional)
-try {
-  const client = require('prom-client');
-  const register = client.register;
-  if (!global.__promClientInitialized) {
-    client.collectDefaultMetrics({ register });
-    global.__promClientInitialized = true;
-  }
-  app.get('/metrics', async (req, res) => {
-    try {
-      res.setHeader('Content-Type', register.contentType);
-      const metrics = await register.metrics();
-      res.status(200).send(metrics);
-    } catch (err) {
-      res.status(500).send(err.message);
-    }
-  });
-} catch (e) {
-  // prom-client may not be installed in all environments — ignore
 }
 
 module.exports = app;

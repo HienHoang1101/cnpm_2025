@@ -1,0 +1,9 @@
+Pinging services to generate metrics...
+auth did not respond to /health or base
+order did not respond to /health or base
+restaurant did not respond to /health or base
+payment did not respond to /health or base
+notification did not respond to /health or base
+admin did not respond to /health or base
+Querying Prometheus for metric 'http_request_duration_seconds_count'
+Prometheus metrics check failed: connect ECONNREFUSED ::1:9090

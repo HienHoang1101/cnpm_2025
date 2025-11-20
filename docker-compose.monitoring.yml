@@ -49,6 +49,17 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     command: -config.file=/etc/promtail/promtail-config.yaml
 
+  monitoring-mongo:
+    image: mongo:5.0
+    container_name: monitoring-mongo
+    ports:
+      - "27019:27017"
+    volumes:
+      - monitoring-mongo-data:/data/db
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=monitor
+      - MONGO_INITDB_ROOT_PASSWORD=monitorpw
+
 volumes:
   grafana-storage:
   prometheus-data:

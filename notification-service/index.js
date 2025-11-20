@@ -34,6 +34,28 @@ if (process.env.NODE_ENV !== 'test') {
 app.use(requestIdMiddleware);
 app.use(pinoHttp);
 
+// Prometheus metrics
+const register = client.register;
+if (!global.__promClientInitialized) {
+  client.collectDefaultMetrics({ register });
+  global.__promClientInitialized = true;
+}
+const httpRequestCounter =
+  register.getSingleMetric('http_requests_total') ||
+  new client.Counter({
+    name: 'http_requests_total',
+    help: 'Total HTTP requests',
+    labelNames: ['method', 'route', 'code'],
+  });
+
+app.use((req, res, next) => {
+  res.on('finish', () => {
+    const route = req.route && req.route.path ? req.route.path : req.path;
+    httpRequestCounter.inc({ method: req.method, route, code: res.statusCode });
+  });
+  next();
+});
+
 app.use(express.json());
 
 app.use(
@@ -62,13 +84,6 @@ app.get('/ready', (req, res) => {
   // Simple readiness: if we have DB connection or in test mode, return ready
   res.status(200).json({ status: 'ready', service: 'notification-service' });
 });
-
-// Prometheus metrics (collect default metrics once)
-const register = client.register;
-if (!global.__promClientInitialized) {
-  client.collectDefaultMetrics({ register });
-  global.__promClientInitialized = true;
-}
 
 app.get('/metrics', async (req, res) => {
   try {

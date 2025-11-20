@@ -2,13 +2,21 @@ import Stripe from "stripe";
 import Payment from "../models/Payment.js";
 import axios from "axios";
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || process.env.STRIPE_KEY || "", {
-  apiVersion: "2023-08-16",
-});
+// Stripe client: allow tests to run without real key
+const stripeSecret =
+  process.env.STRIPE_SECRET_KEY ||
+  process.env.STRIPE_KEY ||
+  (process.env.NODE_ENV === 'test' ? 'sk_test_dummy' : '');
+const stripe = stripeSecret
+  ? new Stripe(stripeSecret, { apiVersion: "2023-08-16" })
+  : null;
 
 // Initiate Payment
 const initiatePayment = async (req, res) => {
   try {
+    if (!stripe) {
+      return res.status(503).json({ error: "Stripe not configured" });
+    }
     const { orderId, amount, currency = "lkr" } = req.body;
     const userId = req.user.id; // Assuming user ID comes from auth middleware
 
@@ -82,6 +90,9 @@ const initiatePayment = async (req, res) => {
 
 // Webhook handler
 const handleWebhook = async (req, res) => {
+  if (!stripe) {
+    return res.status(503).json({ error: "Stripe not configured" });
+  }
   console.log("here");
   const sig = req.headers["stripe-signature"];
   let event;

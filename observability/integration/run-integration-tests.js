@@ -71,11 +71,42 @@ async function checkService(s) {
   }
 }
 
+async function runHappyPathMetrics() {
+  console.log('\n== Happy path: health -> metrics counter ==');
+  for (const s of services) {
+    try {
+      await axios.get(`${s.url}/health`, { timeout: 3000 });
+      const metrics = await axios.get(`${s.url}/metrics`, { timeout: 3000 });
+      const match = typeof metrics.data === 'string'
+        ? metrics.data.match(/http_requests_total\{[^}]*route="\/health"[^}]*\}\s*([0-9.]+)/)
+        : null;
+      if (!match) {
+        throw new Error('http_requests_total for /health not found');
+      }
+      const count = Number(match[1]);
+      if (Number.isNaN(count) || count < 1) {
+        throw new Error(`http_requests_total for /health unexpected: ${match[1]}`);
+      }
+      console.log(`${s.name} happy-path metrics OK (count=${count})`);
+    } catch (e) {
+      console.error(`${s.name} happy-path metrics failed:`, e.message);
+      if (process.env.INTEGRATION_STRICT === 'true') {
+        throw e;
+      }
+    }
+  }
+}
+
 (async () => {
   let ok = true;
   for (const s of services) {
     const res = await checkService(s);
     ok = ok && res;
+  }
+  try {
+    await runHappyPathMetrics();
+  } catch (e) {
+    ok = false;
   }
   if (!ok) {
     console.error('One or more services failed checks');

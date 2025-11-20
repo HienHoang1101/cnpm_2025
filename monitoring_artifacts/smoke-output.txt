@@ -1,0 +1,19 @@
+prometheus not healthy (no 200 on /health or base)
+prometheus /metrics not available
+grafana not healthy (no 200 on /health or base)
+grafana /metrics not available
+jaeger not healthy (no 200 on /health or base)
+jaeger /metrics not available
+auth not healthy (no 200 on /health or base)
+auth /metrics not available
+order not healthy (no 200 on /health or base)
+order /metrics not available
+restaurant not healthy (no 200 on /health or base)
+restaurant /metrics not available
+payment not healthy (no 200 on /health or base)
+payment /metrics not available
+notification not healthy (no 200 on /health or base)
+notification /metrics not available
+admin not healthy (no 200 on /health or base)
+admin /metrics not available
+Monitoring smoke checks passed

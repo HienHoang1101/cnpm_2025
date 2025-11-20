@@ -95,25 +95,25 @@ jobs:
           sed -n '1,200p' docker-compose.yml > monitoring/artifacts/compose-files.yml || true
           if [ -f docker-compose.monitoring.yml ]; then sed -n '1,200p' docker-compose.monitoring.yml >> monitoring/artifacts/compose-files.yml || true; fi
 
-        - name: Wait for Prometheus to be ready
-          run: |
-            set -eux
-            mkdir -p monitoring/artifacts
-            MAX_WAIT=60
-            SLEEP=2
-            i=0
-            echo "Waiting for Prometheus to accept connections on http://localhost:9090"
-            until curl -fsS http://localhost:9090/-/ready > /dev/null 2>&1 || curl -fsS http://localhost:9090/metrics > /dev/null 2>&1; do
-              i=$((i+1))
-              echo "prometheus not ready yet (attempt $i)"
-              if [ $i -ge $MAX_WAIT ]; then
-                echo "Prometheus did not become ready after $((MAX_WAIT * SLEEP)) seconds" > monitoring/artifacts/prom-wait-fail.txt
-                docker logs prometheus > monitoring/artifacts/prometheus.log 2>&1 || true
-                exit 1
-              fi
-              sleep $SLEEP
-            done
-            echo "Prometheus is reachable" > monitoring/artifacts/prom-wait.txt
+      - name: Wait for Prometheus to be ready
+        run: |
+          set -eux
+          mkdir -p monitoring/artifacts
+          MAX_WAIT=60
+          SLEEP=2
+          i=0
+          echo "Waiting for Prometheus to accept connections on http://localhost:9090"
+          until curl -fsS http://localhost:9090/-/ready > /dev/null 2>&1 || curl -fsS http://localhost:9090/metrics > /dev/null 2>&1; do
+            i=$((i+1))
+            echo "prometheus not ready yet (attempt $i)"
+            if [ $i -ge $MAX_WAIT ]; then
+              echo "Prometheus did not become ready after $((MAX_WAIT * SLEEP)) seconds" > monitoring/artifacts/prom-wait-fail.txt
+              docker logs prometheus > monitoring/artifacts/prometheus.log 2>&1 || true
+              exit 1
+            fi
+            sleep $SLEEP
+          done
+          echo "Prometheus is reachable" > monitoring/artifacts/prom-wait.txt
 
       - name: Install monitoring deps
         run: |

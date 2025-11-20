@@ -42,6 +42,28 @@ app.use(pinoHttp);
 app.use(express.json());
 app.use(cookieParser());
 
+// Prometheus metrics
+const register = client.register;
+if (!global.__promClientInitialized) {
+  client.collectDefaultMetrics({ register });
+  global.__promClientInitialized = true;
+}
+const httpRequestCounter =
+  register.getSingleMetric('http_requests_total') ||
+  new client.Counter({
+    name: 'http_requests_total',
+    help: 'Total HTTP requests',
+    labelNames: ['method', 'route', 'code'],
+  });
+
+app.use((req, res, next) => {
+  res.on('finish', () => {
+    const route = req.route && req.route.path ? req.route.path : req.path;
+    httpRequestCounter.inc({ method: req.method, route, code: res.statusCode });
+  });
+  next();
+});
+
 // Set global configuration for service URLs
 global.gConfig = {
   auth_url: process.env.AUTH_SERVICE_URL,
@@ -66,13 +88,6 @@ app.get('/ready', (req, res) => {
   }
   return res.status(503).json({ status: 'not_ready', mongo: readyState });
 });
-
-// Prometheus metrics
-const register = client.register;
-if (!global.__promClientInitialized) {
-  client.collectDefaultMetrics({ register });
-  global.__promClientInitialized = true;
-}
 
 app.get('/metrics', async (req, res) => {
   try {

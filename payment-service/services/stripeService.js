@@ -1,5 +1,9 @@
 import Stripe from "stripe";
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || process.env.STRIPE_KEY || "");
+const stripeSecret =
+  process.env.STRIPE_SECRET_KEY ||
+  process.env.STRIPE_KEY ||
+  (process.env.NODE_ENV === 'test' ? 'sk_test_dummy' : '');
+const stripe = stripeSecret ? new Stripe(stripeSecret) : null;
 
 export const createStripePayment = async ({
   orderId,
@@ -8,6 +12,9 @@ export const createStripePayment = async ({
   customerName,
   metadata,
 }) => {
+  if (!stripe) {
+    throw new Error("Stripe not configured");
+  }
   const session = await stripe.checkout.sessions.create({
     payment_method_types: ["card"],
     line_items: [

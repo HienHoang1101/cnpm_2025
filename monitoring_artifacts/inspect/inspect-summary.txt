@@ -1,0 +1,10 @@
+== docker inspect for known services ==
+monitoring-mongo: inspected
+auth-service: not running
+order-service: not running
+payment-service: not running
+delivery-service: not running
+admin-service: not running
+notification-service: not running
+restaurant-service: not running
+food-delivery-server: not running

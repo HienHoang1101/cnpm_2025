@@ -55,12 +55,20 @@ const httpRequestDuration = new client.Histogram({
   labelNames: ['method', 'route', 'code'],
   buckets: [0.005, 0.01, 0.05, 0.1, 0.3, 1, 2, 5]
 });
+const httpRequestCounter =
+  register.getSingleMetric('http_requests_total') ||
+  new client.Counter({
+    name: 'http_requests_total',
+    help: 'Total HTTP requests',
+    labelNames: ['method', 'route', 'code'],
+  });
 
 app.use((req, res, next) => {
   const end = httpRequestDuration.startTimer();
   res.on('finish', () => {
     const route = req.route && req.route.path ? req.route.path : req.path;
     end({ method: req.method, route, code: res.statusCode });
+    httpRequestCounter.inc({ method: req.method, route, code: res.statusCode });
   });
   next();
 });

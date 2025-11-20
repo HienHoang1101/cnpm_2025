@@ -7,17 +7,30 @@ scrape_configs:
     static_configs:
       - targets: ['localhost:9090']
 
-  - job_name: 'backend-services'
+  - job_name: 'backend-services-host'
     metrics_path: /metrics
     static_configs:
       - targets:
-          - 'host.docker.internal:5001' # auth
-          - 'host.docker.internal:5002' # order
-          - 'host.docker.internal:5003' # restaurant
-          - 'host.docker.internal:5004' # payment
-          - 'host.docker.internal:5007' # notification
-          - 'host.docker.internal:5000' # admin-service
+          - 'host.docker.internal:5001' # auth (local)
+          - 'host.docker.internal:5002' # order (local)
+          - 'host.docker.internal:5003' # restaurant (local)
+          - 'host.docker.internal:5004' # payment (local default)
+          - 'host.docker.internal:5007' # notification (local)
+          - 'host.docker.internal:5000' # admin-service (local)
         labels:
           group: 'backend'
+
+  - job_name: 'backend-services-compose'
+    metrics_path: /metrics
+    static_configs:
+      - targets:
+          - 'auth-service:5001'
+          - 'order-service:5002'
+          - 'restaurant-service:5003'
+          - 'payment-service:5005'
+          - 'notification-service:5007'
+          - 'admin-service:5008'
+        labels:
+          group: 'backend-compose'
 rule_files:
   - "/etc/prometheus/alerts/alerts.yml"
