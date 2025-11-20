@@ -22,16 +22,6 @@
     "helmet": "^8.1.0",
     "http": "^0.0.1-security",
     "ioredis": "^5.6.1",
-  ,"jest": {
-    "coverageThreshold": {
-      "global": {
-        "branches": 50,
-        "functions": 60,
-        "lines": 65,
-        "statements": 65
-      }
-    }
-  }
     "jsonwebtoken": "^9.0.2",
     "mongoose": "^8.13.2",
     "morgan": "^1.10.0",
@@ -43,7 +33,17 @@
     "jest": "^29.7.0",
     "msw": "^2.7.4",
     "nodemon": "^3.1.9",
-    "supertest": "^6.3.3"
-    ,"jest-junit": "^13.0.0"
+    "supertest": "^6.3.3",
+    "jest-junit": "^13.0.0"
+  },
+  "jest": {
+    "coverageThreshold": {
+      "global": {
+        "branches": 50,
+        "functions": 60,
+        "lines": 65,
+        "statements": 65
+      }
+    }
   }
 }
