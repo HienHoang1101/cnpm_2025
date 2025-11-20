@@ -55,10 +55,11 @@ jobs:
           attempt=1
           while [ $attempt -le $MAX_ATTEMPTS ]; do
             echo "compose up attempt $attempt"
-            docker compose -f docker-compose.yml -f docker-compose.monitoring.yml up -d --pull always monitoring-mongo auth-service order-service payment-service delivery-service admin-service || true
+            # Start only the monitoring stack services to ensure Prometheus/Grafana/Loki/Jaeger come up reliably
+            docker compose -f docker-compose.yml -f docker-compose.monitoring.yml up -d --pull always prometheus grafana jaeger loki promtail monitoring-mongo || true
             sleep $((10 * attempt))
             docker ps --format "table {{.Names}}\t{{.Status}}" > monitoring/artifacts/docker-ps.txt 2>&1 || true
-            if [ -n "$(docker ps -q -f name=auth-service)" ]; then break; fi
+            if [ -n "$(docker ps -q -f name=prometheus)" ]; then break; fi
             attempt=$((attempt+1))
           done
 
@@ -68,11 +69,13 @@ jobs:
           mkdir -p monitoring/artifacts
           docker compose -f docker-compose.yml -f docker-compose.monitoring.yml ps > monitoring/artifacts/compose-ps.txt 2>&1 || true
           docker compose -f docker-compose.yml -f docker-compose.monitoring.yml logs --no-color --tail=200 > monitoring/artifacts/compose-logs.txt 2>&1 || true
-          docker logs --tail 500 auth-service > monitoring/artifacts/auth-service.log 2>&1 || true
-          docker logs --tail 500 order-service > monitoring/artifacts/order-service.log 2>&1 || true
-          docker logs --tail 500 payment-service > monitoring/artifacts/payment-service.log 2>&1 || true
-          docker logs --tail 500 delivery-service > monitoring/artifacts/delivery-service.log 2>&1 || true
-          docker logs --tail 500 admin-service > monitoring/artifacts/admin-service.log 2>&1 || true
+          # Collect logs only for the monitoring services (avoid noisy app logs when testing monitoring stack)
+          docker logs --tail 500 prometheus > monitoring/artifacts/prometheus.log 2>&1 || true
+          docker logs --tail 500 grafana > monitoring/artifacts/grafana.log 2>&1 || true
+          docker logs --tail 500 jaeger > monitoring/artifacts/jaeger.log 2>&1 || true
+          docker logs --tail 500 loki > monitoring/artifacts/loki.log 2>&1 || true
+          docker logs --tail 500 promtail > monitoring/artifacts/promtail.log 2>&1 || true
+          docker logs --tail 500 monitoring-mongo > monitoring/artifacts/monitoring-mongo.log 2>&1 || true
 
       - name: Collect container inspect and compose files
         if: always()
@@ -91,6 +94,26 @@ jobs:
           echo "== docker-compose files ==" > monitoring/artifacts/compose-files.txt || true
           sed -n '1,200p' docker-compose.yml > monitoring/artifacts/compose-files.yml || true
           if [ -f docker-compose.monitoring.yml ]; then sed -n '1,200p' docker-compose.monitoring.yml >> monitoring/artifacts/compose-files.yml || true; fi
+
+        - name: Wait for Prometheus to be ready
+          run: |
+            set -eux
+            mkdir -p monitoring/artifacts
+            MAX_WAIT=60
+            SLEEP=2
+            i=0
+            echo "Waiting for Prometheus to accept connections on http://localhost:9090"
+            until curl -fsS http://localhost:9090/-/ready > /dev/null 2>&1 || curl -fsS http://localhost:9090/metrics > /dev/null 2>&1; do
+              i=$((i+1))
+              echo "prometheus not ready yet (attempt $i)"
+              if [ $i -ge $MAX_WAIT ]; then
+                echo "Prometheus did not become ready after $((MAX_WAIT * SLEEP)) seconds" > monitoring/artifacts/prom-wait-fail.txt
+                docker logs prometheus > monitoring/artifacts/prometheus.log 2>&1 || true
+                exit 1
+              fi
+              sleep $SLEEP
+            done
+            echo "Prometheus is reachable" > monitoring/artifacts/prom-wait.txt
 
       - name: Install monitoring deps
         run: |
