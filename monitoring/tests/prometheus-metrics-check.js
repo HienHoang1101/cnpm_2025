@@ -38,24 +38,46 @@ async function queryPrometheus(metricName) {
   return res.data;
 }
 
+async function queryPrometheusWithRetry(metricName, attempts = 6, delayMs = 5000) {
+  let lastErr = null;
+  for (let i = 1; i <= attempts; i++) {
+    try {
+      console.log(`Prometheus query attempt ${i}/${attempts} -> ${PROM_URL}`);
+      const data = await queryPrometheus(metricName);
+      if (data && data.status === 'success') return data;
+      lastErr = new Error(`non-success status: ${data && data.status}`);
+      console.warn('Prometheus returned non-success:', JSON.stringify(data).slice(0, 200));
+    } catch (err) {
+      lastErr = err;
+      if (err.response) {
+        console.warn(`Prometheus HTTP ${err.response.status} - body: ${JSON.stringify(err.response.data).slice(0,200)}`);
+      } else {
+        console.warn('Prometheus request error:', err.message);
+      }
+    }
+
+    if (i < attempts) {
+      console.log(`Waiting ${delayMs}ms before next Prometheus attempt`);
+      await new Promise((r) => setTimeout(r, delayMs));
+    }
+  }
+  throw lastErr || new Error('Prometheus query failed after retries');
+}
+
 (async () => {
   try {
     // 1) Trigger traffic so services expose metrics
     console.log('Pinging services to generate metrics...');
     await pingServices();
 
-    // Wait a bit for metrics to be scraped
-    await new Promise((r) => setTimeout(r, 5000));
+    // Wait for metrics to be scraped
+    console.log('Waiting 8s for services to expose metrics and Prometheus to scrape...');
+    await new Promise((r) => setTimeout(r, 8000));
 
-    // 2) Query Prometheus for the histogram counter created by prom-client
+    // 2) Query Prometheus for the histogram counter created by prom-client (with retries)
     const metric = 'http_request_duration_seconds_count';
-    console.log(`Querying Prometheus for metric '${metric}'`);
-    const data = await queryPrometheus(metric);
-
-    if (!data || data.status !== 'success') {
-      console.error('Prometheus query failed or returned non-success status', data && data.status);
-      process.exit(2);
-    }
+    console.log(`Querying Prometheus for metric '${metric}' (with retries)`);
+    const data = await queryPrometheusWithRetry(metric, 6, 5000);
 
     const results = data.data && data.data.result ? data.data.result : [];
     if (results.length === 0) {
