@@ -51,3 +51,4 @@ jobs:
         with:
           name: auth-coverage
           path: auth/coverage
+          if-no-files-found: ignore

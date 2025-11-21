@@ -45,6 +45,10 @@ jobs:
             echo "skipped" > "test-logs/${{ matrix.service }}.txt"
           fi
 
+      - name: Create placeholder coverage if missing
+        run: |
+          node scripts/create-empty-coverage.js || true
+
       - name: Upload test logs
         uses: actions/upload-artifact@v4
         with:
@@ -61,6 +65,7 @@ jobs:
         with:
           name: coverage-${{ matrix.service }}
           path: ${{ matrix.service }}/coverage
+          if-no-files-found: ignore
 
 
   coverage-summary:
