@@ -18,3 +18,39 @@ groups:
         annotations:
           summary: "High 5xx error rate"
           description: "Service {{ $labels.job }} has more than 5 server errors in 5 minutes."
+
+      - alert: SustainedLatencyP95
+        expr: histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket[5m])) by (le, job)) > 0.8
+        for: 3m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High p95 latency (>800ms)"
+          description: "Service {{ $labels.job }} p95 latency above 800ms for 3m. Investigate performance or slow dependencies."
+
+      - alert: NoRequestsRecently
+        expr: sum(increase(http_requests_total[10m])) by (job) == 0
+        for: 10m
+        labels:
+          severity: info
+        annotations:
+          summary: "No requests in last 10m"
+          description: "Service {{ $labels.job }} shows zero traffic. If not intentional, check deployment or client connectivity."
+
+      - alert: MemoryHighResident
+        expr: process_resident_memory_bytes / 1024 / 1024 > 400
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High memory usage (>400MB RSS)"
+          description: "Instance {{ $labels.instance }} RSS memory exceeded 400MB for 5m. Possible leak or high load."
+
+      - alert: RestartSpike
+        expr: changes(process_start_time_seconds[30m]) > 2
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Frequent restarts"
+          description: "Process {{ $labels.instance }} restarted more than 2 times in 30m. Check crash loops or OOM."

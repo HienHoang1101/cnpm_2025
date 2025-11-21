@@ -37,6 +37,23 @@ The system consists of the following components:
    - Delivery Personnel App (React Native)
    - Admin Dashboard (React.js)
 
+### Monitoring & Observability (Added)
+Stack includes Prometheus (metrics), Grafana (dashboards), Loki + Promtail (logs), Jaeger (traces). Custom smoke tests under `monitoring/` verify:
+ - Per-service `/health` and `/metrics` availability (`service-metrics-suite.js`).
+ - Prometheus query success for histogram/counter metrics with retry logic.
+ - Core runtime metrics exposure (`process_cpu_seconds_total`, `process_resident_memory_bytes`).
+
+Prometheus loads rules from `observability/alerts.yml` including instance down, high 5xx rate, high p95 latency, zero traffic, high memory, restart spike.
+
+### Quick Monitoring Run
+```
+docker compose -f docker-compose.yml -f docker-compose.monitoring.yml up -d prometheus grafana loki promtail jaeger monitoring-mongo
+npm install --prefix monitoring
+npm run service-metrics --prefix monitoring
+npm run prometheus-check --prefix monitoring
+```
+Grafana default admin password: `admin` (set in compose). Import dashboards or create panels for `http_requests_total`, latency (`histogram_quantile`), memory.
+
 ## 2. LOCAL DEVELOPMENT DEPLOYMENT
 
 ### Clone the Repository
@@ -55,6 +72,7 @@ mongod --dbpath=/data/db
 ### Set Up Environment Variables
 
 Create a `.env` file in each microservice directory using the provided `.env.example` templates.
+Root-level `.env.example` added for consolidated local defaults; copy to `.env` then adjust secrets.
 
 ### Install Dependencies and Start Services
 
@@ -161,8 +179,8 @@ npm start
 2. Build and start all services:
 
    ```
-   docker-compose build
-   docker-compose up
+   docker compose -f docker-compose.yml -f docker-compose.monitoring.yml build
+   docker compose -f docker-compose.yml -f docker-compose.monitoring.yml up -d auth-service order-service payment-service delivery-service admin-service prometheus grafana loki promtail jaeger monitoring-mongo
    ```
 
 3. To stop all services:
@@ -192,6 +210,32 @@ For each microservice (auth, order, restaurant, etc.):
    ```
 
 ## 4. KUBERNETES DEPLOYMENT
+## 9. Testing & CI Overview (Added)
+
+### Server Tests
+`food-delivery-server/tests/` includes health and metrics tests plus content validation of default prom-client metrics.
+
+### Monitoring Tests
+- `monitoring/tests/service-metrics-suite.js`: Ensures each service exposes `/health` & `/metrics` and core process metrics.
+- `monitoring/tests/prometheus-metrics-check.js`: Queries Prometheus with retries to confirm ingestion of request metrics.
+
+### Running All Monitoring Tests
+```
+npm test --prefix monitoring
+```
+
+### Coverage
+Initial coverage thresholds relaxed for deadline; plan to raise incrementally after adding controller/service unit tests.
+
+## 10. Alert Rules Summary (Added)
+`observability/alerts.yml` includes:
+- InstanceDown (up == 0)
+- HighErrorRate (5xx surge)
+- SustainedLatencyP95 (>800ms p95)
+- NoRequestsRecently (potential outage or idle)
+- MemoryHighResident (>400MB RSS)
+- RestartSpike (multiple restarts short window)
+
 
 ### Prepare Infrastructure
 
