@@ -4,7 +4,7 @@ const fs = require('fs');
 const path = require('path');
 
 const services = [
-  'auth', 'order', 'restaurant', 'payment-service', 'notification-service', 'admin-service'
+  'auth', 'order', 'restaurant', 'payment-service', 'notification-service', 'admin-service', 'food-delivery-server'
 ];
 
 services.forEach(svc => {
